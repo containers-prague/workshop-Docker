@@ -1,0 +1,218 @@
+* Docker Compose
+
+tl;dr Defines multi-container application stack in single file.
+
+[[https://docs.docker.com/compose/][Official documentation]]
+
+** Quick start
+Create file `Dockerfile`:
+
+#+BEGIN_SRC dockerfile
+ FROM python:3
+ ENV PYTHONUNBUFFERED 1
+ RUN mkdir /code
+ WORKDIR /code
+ ADD requirements.txt /code/
+ RUN pip install -r requirements.txt
+ ADD . /code/
+#+END_SRC
+
+Create file `docker-compose.yml`:
+#+BEGIN_SRC yaml
+version: '3'
+
+services:
+  db:
+    image: postgres
+  web:
+    build: .
+    command: python3 manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+#+END_SRC
+
+Run stack
+#+BEGIN_SRC bash
+docker-compose up
+#+END_SRC
+** Features
+- Multiple isolated environments on a single host
+- Preserve volume data when containers are created
+- Only recreate containers that have changed
+- Variables and moving a composition between environments
+** Compose file overview
+Compose file is describing containers that should be created, in what order should be started and how should be created.
+There are 3 versions of docker-compose specification, this is brief overview of main funcionality of version 2.
+Check [[https://docs.docker.com/compose/compose-file/compose-file-v2/#compose-and-docker-compatibility-matrix][official documentation]] all options.
+
+!! NOTE !! - Check [[https://docs.docker.com/compose/compose-file/compose-file-v2/#compose-and-docker-compatibility-matrix][compatibility matrix]] to see supported format and features on your current docker installation.
+*** build
+Either finished image or Dockerfile can be defined as source image for container. build option serves for defining information passed to docker during build time.
+#+BEGIN_SRC yaml
+# Either specify string with path to Dockerfile:
+build: ./dir
+
+# or dict of build arguments:
+build:
+  context: ./dir
+  dockerfile: Dockerfile-alternate
+  args:
+    buildno: 1
+#+END_SRC
+*** command
+Overrides command for container.
+*** entrypoint
+Overrides entrypoint for container.
+*** environment
+Map or list of key/values of env variables.
+
+#+BEGIN_SRC yaml
+environment:
+  RACK_ENV: development
+  SHOW: 'true'
+  SESSION_SECRET:
+
+environment:
+  - RACK_ENV=development
+  - SHOW=true
+  - SESSION_SECRET
+#+END_SRC
+*** expose
+List of ports to expose without publishing them to the host machine - they'll only be accessible to linked services. Only the internal port can be specified.
+*** extends
+Extend another service, in the current file or another, optionally overriding configuration.
+#+BEGIN_SRC yaml
+extends:
+  file: common.yml
+  service: webapp
+#+END_SRC
+*** healthcheck
+Configure a check that's run to determine whether or not containers for this service are healthy.
+#+BEGIN_SRC yaml
+healthcheck:
+  test: ["CMD", "curl", "-f", "http://localhost"]
+  interval: 1m30s
+  timeout: 10s
+  retries: 3
+#+END_SRC
+*** image
+Specify the image to start the container from.
+Only `build` or `image` can be specified for one container.
+*** init
+Run an init inside the container that forwards signals and reaps processes.
+
+#+BEGIN_SRC yaml
+version: '2.2'
+services:
+  web:
+    image: alpine:latest
+    init: /usr/libexec/docker-init
+#+END_SRC
+*** labels
+Add metadata to containers using Docker labels. You can use either an array or a dictionary.
+
+#+BEGIN_SRC yaml
+labels:
+  com.example.description: "Accounting webapp"
+  com.example.department: "Finance"
+  com.example.label-with-empty-value: ""
+
+labels:
+  - "com.example.description=Accounting webapp"
+  - "com.example.department=Finance"
+  - "com.example.label-with-empty-value"
+
+#+END_SRC
+*** links
+Link to containers in another service.
+
+#+BEGIN_SRC yaml
+web:
+  links:
+   - "db"
+   - "db:database"
+   - "redis"
+#+END_SRC
+*** networks
+Networks to join, referencing entries under the top-level `networks` key.
+
+#+BEGIN_SRC yaml
+version: '2'
+
+services:
+  web:
+    build: ./web
+    networks:
+      - new
+
+  worker:
+    build: ./worker
+    networks:
+      - legacy
+
+  db:
+    image: mysql
+    networks:
+      new:
+        aliases:
+          - database
+      legacy:
+        aliases:
+          - mysql
+
+networks:
+  new:
+  legacy:
+#+END_SRC
+*** ports
+Expose ports.
+
+#+BEGIN_SRC yaml
+ports:
+ - "3000"
+ - "3000-3005"
+ - "8000:8000"
+ - "9090-9091:8080-8081"
+ - "49100:22"
+ - "127.0.0.1:8001:8001"
+ - "127.0.0.1:5000-5010:5000-5010"
+ - "6060:6060/udp"
+#+END_SRC
+*** volumes
+#+BEGIN_SRC yaml
+volumes:
+  # Just specify a path and let the Engine create a volume
+  - /var/lib/mysql
+
+  # Specify an absolute path mapping
+  - /opt/data:/var/lib/mysql
+
+  # Path on the host, relative to the Compose file
+  - ./cache:/tmp/cache
+
+  # User-relative path
+  - ~/configs:/etc/configs/:ro
+
+  # Named volume
+  - datavolume:/var/lib/mysql
+
+# OR
+version: "3"
+
+services:
+  db:
+    image: db
+    volumes:
+      - data-volume:/var/lib/db
+  backup:
+    image: backup-service
+    volumes:
+      - data-volume:/var/lib/backup/data
+
+volumes:
+  data-volume:
+#+END_SRC
