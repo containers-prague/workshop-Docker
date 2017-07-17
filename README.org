@@ -1,0 +1,192 @@
+This repository contains resources for Prague Containers Meetup Docker workshop. 
+
+* Running your first container.
+To keep a good IT tradition we will start with a hello world, containerized of course:
+
+#+BEGIN_SRC shell
+docker run -ti hello-world
+#+END_SRC
+
+* Building images
+The very first step in containerizing your application is to build a Docker image. It is a set
+of *filesystem* and *execution parameters* you can use as a basis to run your Docker container. You 
+can imagine is an application binary and run script merged together. Similar to application 
+binary it doesn't have any state. The most common way to create a Docker image is *Dockerfile*. 
+
+** Dockerfile introduction
+Dockerfile is a set of instructions which are used to create Docker images. You can imagine Dockerfile
+as a script which is evaluated instruction by instruction. Very simple Dockerfile looks like:
+
+#+BEGIN_SRC dockerfile 
+FROM alpine
+CMD ["/bin/echo", "hello world!"]
+#+END_SRC
+
+** Important instructions
+Lets continue with a quick summary of the most important instructions.
+- `FROM image` sets base image
+- `LABEL key value` add labels to the image
+- `ENV key value` set environment variable
+- `RUN` executes commands in image
+  - shell form: `RUN command`
+  - exec form: `RUN ["executeable", "param1", "param2"]`
+- `WORKDIR dir` set current working directory
+- `ADD src dest` copies new files
+- `CMD cmd` default command to be executed in container
+- `EXPOSE port` inform about open ports
+- `VOLUME volume` create mount point with 
+- `ENTRYPOINT` configure executable for container
+- `HEALTHCHECK` configures a script which is periodically invoked inside container to tell if its operating correctly
+
+
+*Note:* you can review all of the instructions in upstream [[https://docs.docker.com/engine/reference/builder/][Dockerfile doc]].
+
+** Dockerfile Best Practices
+Writing Dockerfile is easy task - writing good and maintainable Dockerfile is much harder.
+
+*** Instructions ordering/grouping
+When creating a Dockerfile it is very important to maintain a reasonable instructions order to achieve:
+1. good readability
+2. good docker cache usage for local rebuilds
+3. a reasonable way to be able to diff/merge easily
+
+*** Do not install unnecessary software
+Docker images should be very small - you don't need unnecessary tools inside them - it will just expose you to bigger
+attack surface for container and in the end your desired tool will not be there or will not work on properly secured 
+production environment (no PTRACE in unprivileged containers for example)
+
+*** Ignoring files
+When building an image Docker daemon collect context of sub-directories next to the Dockerfile, this can be very slow operation
+and you can speed this up/prevent sending *sensitive* data by using .dockerignore file.
+
+#+BEGIN_SRC .dockerignore
+.git
+# do not send auth data to app
+auth
+#+END_SRC
+
+***  Do not use root user, ever
+Containers are not VM, they are not properly isolated and running your app as root can lead to security issues. There are 
+tools which tries to helps us, but still they are not silver bullet and can be turned off accidentally or during product
+upgrades. Who does security test for your ansible playbook?
+
+** Building an image
+Building an image is very easy:
+#+BEGIN_SRC sh
+docker build -t image/name path_to_dir_with_Dockerfile
+#+END_SRC
+
+** Multi stage builds
+
+** Recap questions?
+- What is container and how it differs from image
+- How do you build an image?
+
+* Running containers
+As you can see we spent some time on creating Docker images. Now we should take a look how you can use them
+to bring you any value. To use an image you need to create and start container from it. You can do this by
+*docker run* command.
+
+Important docker run options:
+- `--detach`
+- `--entrypoint`
+- `--env`
+- `--expose`
+- `--interactive (-i)`
+- `--link (-l)`
+- `--memory (-m)`
+- `--name`
+- `--net`
+- `--pid`
+- `--privileged`
+- `--restart`
+- `--rm`
+- `--tty (-t)`
+- `--volume`
+- `--volumes_from`
+
+
+** What containers are?
+Containers are invocation of an image (yes like a process for a.out)
+
+*** Namespaces
+Docker containers define following namespaces:
+| Namespace | Purpose                                     |
+|-----------+---------------------------------------------|
+| mnt       | Mount points                                |
+| pid       | Provide independent process IDs             |
+| net       | Networking stack                            |
+| icp       | Inter-process communication                 |
+| uts       | Provide different hostnames                 |
+| uid       | Privilege isolation and user identification |
+| cgroup    | Prevent leaking control-group               |
+
+
+*** Accessing namespaces
+
+** Recap tasks/questions
+- What containers are?
+- Which way they differs from VM?
+- Which way containers differs from chroot?
+
+** Tasks
+- Create an image which will output content of the text file stored next to the Dockerfile (hint, use COPY instruction)
+- Create container sharing network with host
+- Create a two containers sharing process namespace (hint use *--pid* option) list processes there via *docker top*
+
+* Storing/retrieving images
+
+When your image is built you probably need a way to share images within your organization. This can be
+solved by using Docker registry. They can server as a central storage for development/production images.
+The most convenient way is to deploy registry as a docker image. 
+
+** Deploying local registry
+To run registry locally you need to:
+#+BEGIN_SRC shell
+docker run -ti --name registry -P 5000:5000 registry:v2
+#+END_SRC
+
+*** Making it a proper service
+The standard way of managing services on Linux systems now is systemd. Docker offers kind of its internal 
+service management, but its much better to use systemd for this purpose as you will use one tool to manage
+all your services.
+
+To deploy docker registry as a systemd service use following unit file:
+#+BEGIN_SRC systemd
+[Unit]
+Description=ACME Docker Registry
+After=docker.service
+Requires=docker.service
+
+[Service]
+RestartSec=10s
+ExecStartPre=-/usr/bin/docker kill registry2
+ExecStartPre=-/usr/bin/docker rm registry2
+ExecStart=/bin/sh -c "/usr/bin/docker run --name registry2 -e REGISTRY_STORAGE_DELETE_ENABLED=true -e SETTINGS_FLAVOUR=local -e SEARCH_BACKEND=sqlalchemy -v /var/docker/registry:/var/lib/registry -p 5000:5000 registry:2.5"
+ExecStop=-/usr/bin/docker kill registry2
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+#+END_SRC
+
+** Pushing an image to your local registry
+To be able to push image to your private registry, its need to be tagged to contain registry address as 
+a part of the image name. 
+
+*Example*: for you to be able to push image named `foo/bar` to registry running on localhost:5000 your image
+tag must be named: `localhost:5000/foo/bar`. To tag an image you can use docker tag command.
+
+#+BEGIN_SRC shell
+docker tag foo/bar localhost:5000/foo/bar
+docker push foo/bar localhost:5000/foo/bar
+#+END_SRC
+
+*Note:* to be able to use such registry you need to set --insecure-registry option to registry ip address.
+
+* Recap Questions
+- What registry are and why they are used
+
+* Task
+- Deploy a local registry and configure docker daemon to use it.
+- Untag image from registry and fetch it via its hash.
